@@ -1,6 +1,3 @@
 [submodule "Explicit-MATLAB"]
 	path = Explicit-MATLAB
 	url = https://github.com/explicit-robotics/Explicit-MATLAB
-[submodule "Documents/GIT_private/stiffnessTensor"]
-	path = Documents/GIT_private/stiffnessTensor
-	url = https://github.com/jlachner/CartImpedanceControl.git
