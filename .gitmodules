@@ -1,6 +1,0 @@
-[submodule "Explicit-MATLAB"]
-	path = Explicit-MATLAB
-	url = https://github.com/explicit-robotics/Explicit-MATLAB
-[submodule "CartImpedanceControl"]
-	path = CartImpedanceControl
-	url = https://github.com/jlachner/CartImpedanceControl.git
