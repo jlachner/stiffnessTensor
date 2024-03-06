@@ -37,7 +37,7 @@ J = J( 4:6, : );
 
 q_sym = sym( 'q', [nq, 1 ] );
 J_sym = robot.getHybridJacobian( q_sym );
-J_sym = J_sym( 1:3, : );
+J_sym = J_sym( 4:6, : );
 J_T_sym = J_sym';
 
 % Partial derivative of J_T_sym wrt. q_sym
@@ -78,12 +78,17 @@ m = [ 1.5, 2.2, 1.4 ]';
 %         0, 0, 0, F(6)/2, 0, -F(4)/2; ...
 %         0, 0, 0, -F(5)/2, F(4)/2, 0 ];
 
+% Chen 2004!!!!!!!!!!!!!!!!!!!!
+K_CS = [ 0, m(3)/2, -m(2)/2; ...
+       -m(3)/2, 0, m(1)/2; ...
+       m(2)/2, -m(1)/2, 0 ];
+
 %% Kinematic Stiffness (Chen, 2000, eq. 6) -> Symmetric for 3D!
 K_kin = [ dJ_T_dq( :, :, 1 ) * m, dJ_T_dq( :, :, 2 ) * m, dJ_T_dq( :, :, 3 ) * m, dJ_T_dq( :, :, 4 ) * m, ...
     dJ_T_dq( :, :, 5 ) * m, dJ_T_dq( :, :, 6 ) * m, dJ_T_dq( :, :, 7 ) * m ];
 
 %% JS Stiffness Tensor
-K_js = J' * K * J + K_kin
+K_js = J' * K * J + J' * K_CS * J + K_kin
 
 [U, K_bar, V] = svd( K_js );
 
