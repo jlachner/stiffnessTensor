@@ -1,8 +1,5 @@
-%% Initialization
+%% (1-) Initialization
 clear; close all; clc;
-
-%% (1-) Call the Kinematic Coefficients
-% Calculated under KinematicConnections.m
 
 % Loading the Kinematic Coefficients
 load( 'KinematicCoefficients.mat' );
@@ -11,98 +8,340 @@ load( 'KinematicCoefficients.mat' );
 robot = iiwa14( 'high' );
 robot.init( );
 
-%% (1A) 3D Case, Position, Hybrid Jacobian, w and w/o Kin. Coefficients
-
 % Get the Symbolic Form of the Hybrid Jacobian
 q_syms = sym( 'q', [ 7, 1 ] );
-JH = robot.getHybridJacobian( q_syms );
+
+% The Text 
+J_type = [ "Hybrid", "Spatial", "Body" ];
+
+% The J Matrix
+J_mat = { robot.getHybridJacobian(  q_syms ), ...
+          robot.getSpatialJacobian( q_syms ), ...
+          robot.getBodyJacobian( q_syms, 7 ) };
+
+%% (1A) 3D Case, Translation
+
+% Choosing the Type
+idx = 3;
+
+fprintf( "\nAnalyzing %s Jacobian, 3D Translation\n", J_type( idx ) );
+
+% Using the Hybrid Jacobian for the Symmetric 
+J_sym = J_mat{ idx };
+J_T_sym = J_sym.';
 
 % Initializing the joint-stiffness matrix, type 1
 Kq1 = sym( zeros( robot.nq, robot.nq ) );
 
 % Initializing the Force, Kx matrices, and Joint array
-% Randomized
-% tmp1 = rand( 3, 3 );
-% Kx = tmp1' * diag( [ 1.2, 4.3, 5.4 ] ) * tmp1;
+Kx = diag( [ 402., 311., 167., 0., 0., 0.  ] );
 
-Kx = zeros( 3, 3 );
-Kx( 1, 1 ) = 402;
-Kx( 2, 2 ) = 311;
-Kx( 3, 3 ) = 167;
+% Check also for non-diagonal matrix
+tmp_mat = rand( 3, 3 );
+% Kx = tmp_mat * diag( [ 402., 311., 167. ] ) * tmp_mat.';
 
-% Values Randomized vs. Johannes' Code 
-% F_arr = rand( 3, 1 );
-F_arr = [ 1.5, 2.2, 1.4 ]';
-
-% Values Randomized vs. Johannes' Code 
-% q_arr = rand( robot.nq,1 );
+F_arr = [ 1.5, 2.2, 1.4, 0, 0, 0 ]';
 q_arr = robot.q_init;
 
 % The Hybrid Jacobian Value
-JH_val = double( subs( JH, q_syms, q_arr ) );
+J_val = double( subs( J_sym, q_syms, q_arr ) );
 
 % With Brute-Force Tensor Notation
 % a, b are iterating across the joint angles, 1<=a,b<=7
 for a = 1 : robot.nq
     for b = 1 : robot.nq
-        
-        K_ab = 0;
-
+       
         % The Hybrid Jacobian Terms
         % For Translation Only, 1<=i,j<=3
         for i = 1 : 3
             for j = 1 : 3
+                
                 tmp = 0;
-
-                % Note that the translational term has no connection coefficients
-                % So the following term is not needed, strictly speaking
-                for k = 1 : 3
-                    tmp = tmp + F_arr( k )*Gamma(i,j,k);
+                if idx == 3 % If Body
+                    for k = 1 : 6
+                        tmp = tmp + F_arr( k )*Gamma(i,j,k);
+                    end
                 end
 
-                % The Derivative Part of J^{i}_a/eta(b)
-                diffJ = double( subs( diff( JH( i, a ), q_syms( b ) ), q_syms, q_arr ) );
-
                 % Summation
-                K_ab = K_ab + JH_val( i, a )*JH_val( j, b )*( Kx( i, j ) + tmp ) + diffJ * F_arr( i );
+                Kq1( a, b ) = Kq1( a, b ) + J_val( i, a )*J_val( j, b )*( Kx( i, j ) + tmp );
 
             end
         end
 
-        Kq1( a, b ) = K_ab;
+        % The CODE is FIXED!!
+        % Must ADD Separately
+        tmp = 0;
+        for k = 1:3
+            diffJ = double( subs( diff( J_sym( k, a ), q_syms( b ) ), q_syms, q_arr ) );
+            tmp = tmp + diffJ * F_arr( k );
+        end     
+
+        Kq1( a, b ) = Kq1( a, b ) + tmp;
+
     end
 end
 
 Kq1 = double( Kq1 );
 
 % With Johannes Method
-% [REF] main_StiffTen_HybridJacobian_3D
-J_sym = JH( 1:3, : );
+% Saving the Jacobian's, nqx6 arrays
+dJ_T_dq = zeros( robot.nq, 6, robot.nq );
+dJ_T_dq( :, :, 1 ) = double( subs(  diff( J_T_sym, q_syms( 1 ) ), q_syms, q_arr ) );
+dJ_T_dq( :, :, 2 ) = double( subs(  diff( J_T_sym, q_syms( 2 ) ), q_syms, q_arr ) );
+dJ_T_dq( :, :, 3 ) = double( subs(  diff( J_T_sym, q_syms( 3 ) ), q_syms, q_arr ) );
+dJ_T_dq( :, :, 4 ) = double( subs(  diff( J_T_sym, q_syms( 4 ) ), q_syms, q_arr ) );
+dJ_T_dq( :, :, 5 ) = double( subs(  diff( J_T_sym, q_syms( 5 ) ), q_syms, q_arr ) );
+dJ_T_dq( :, :, 6 ) = double( subs(  diff( J_T_sym, q_syms( 6 ) ), q_syms, q_arr ) );
+dJ_T_dq( :, :, 7 ) = double( subs(  diff( J_T_sym, q_syms( 7 ) ), q_syms, q_arr ) );
+
+K_CS = [ 0, 0, 0, 0, -F_arr(3), F_arr(2); ...
+         0, 0, 0, F_arr(3), 0, -F_arr(1); ...
+         0, 0, 0, -F_arr(2), F_arr(1), 0; ...
+         0, 0, 0, 0, 0, 0; ...
+         0, 0, 0, 0, 0, 0; ...
+         0, 0, 0, 0, 0, 0 ];
+
+K_kin = [ dJ_T_dq( :, :, 1 )*F_arr, dJ_T_dq( :, :, 2 )*F_arr, dJ_T_dq( :, :, 3 )*F_arr, dJ_T_dq( :, :, 4 )*F_arr, ...
+          dJ_T_dq( :, :, 5 )*F_arr, dJ_T_dq( :, :, 6 )*F_arr, dJ_T_dq( :, :, 7 )*F_arr ];
+
+if idx == 1 || idx == 2
+    Kq2 = J_val' * Kx * J_val + K_kin;   % Without CS
+
+    fprintf( "Error between Brute Force, without CS: %.15f\n", max( max( Kq1 - Kq2  )  ) )
+    fprintf( "Symmetry with Brute Force %.15f\n", max( max( Kq2 - Kq2' ) ) );
+    fprintf( "Symmetry without CS %.15f\n", max( max( Kq2 - Kq2' ) ) );
+    fprintf( "Determinant, Brute Force %.15f\n", det( Kq1 ) );
+    fprintf( "Determinant, without CS  %.15f\n", det( Kq2 ) );
+
+elseif idx == 3
+    Kq2 = J_val' * ( Kx        ) * J_val + K_kin;   % Without CS    
+    Kq3 = J_val' * ( Kx + K_CS ) * J_val + K_kin;   % With    CS
+
+    fprintf( "Error between Brute Force, without CS: %.15f\n", max( max( Kq1 - Kq2  )  ) )
+    fprintf( "Error between Brute Force, with    CS: %.15f\n", max( max( Kq1 - Kq3  )  ) )
+    fprintf( "Symmetry with Brute Force %.15f\n", max( max( Kq2 - Kq2' ) ) );
+    fprintf( "Symmetry without CS %.15f\n", max( max( Kq2 - Kq2' ) ) );
+    fprintf( "Symmetry with    CS %.15f\n", max( max( Kq3 - Kq3' ) ) );
+    fprintf( "Determinant, Brute Force %.15f\n", det( Kq1 ) );
+    fprintf( "Determinant, without CS  %.15f\n", det( Kq2 ) );
+    fprintf( "Determinant, with    CS  %.15f\n", det( Kq3 ) );
+    
+end
+
+%% (1B) 3D Case, Rotation
+
+idx = 2;
+fprintf( "\nAnalyzing %s Jacobian, 3D Rotation \n", J_type( idx ) );
+
+% Using the Hybrid Jacobian for the Symmetric 
+J_sym = J_mat{ idx };
 J_T_sym = J_sym.';
 
-% Partial derivative of J_T_sym wrt. q_sym
-dJ_T_dq1 = diff( J_T_sym, q_syms( 1 ) );
-dJ_T_dq2 = diff( J_T_sym, q_syms( 2 ) );
-dJ_T_dq3 = diff( J_T_sym, q_syms( 3 ) );
-dJ_T_dq4 = diff( J_T_sym, q_syms( 4 ) );
-dJ_T_dq5 = diff( J_T_sym, q_syms( 5 ) );
-dJ_T_dq6 = diff( J_T_sym, q_syms( 6 ) );
-dJ_T_dq7 = diff( J_T_sym, q_syms( 7 ) );
+% Initializing the joint-stiffness matrix, type 1
+Kq1 = sym( zeros( robot.nq, robot.nq ) );
 
+Kx = diag( [ 0, 0, 0, 40., 31., 16. ] );
+F_arr = [ 0, 0, 0, 1.5, 2.2, 1.4 ]';
+
+% Values Randomized vs. Johannes' Code 
+q_arr = robot.q_init;
+
+% The Hybrid Jacobian Value
+J_val = double( subs( J_sym, q_syms, q_arr ) );
+
+% With Brute-Force Tensor Notation
+% a, b are iterating across the joint angles, 1<=a,b<=7
+for a = 1 : robot.nq
+    for b = 1 : robot.nq
+       
+        % The Hybrid Jacobian Terms
+        % For Rotational Parts
+
+        for i = 4 : 6
+            for j = 4 : 6
+                tmp = 0;
+                if idx == 3 % If Body
+                    for k = 4 : 6
+                        tmp = tmp + F_arr( k )*Gamma(i,j,k);
+                    end
+                end
+
+                % Summation
+                Kq1( a, b ) = Kq1( a, b ) + J_val( i, a )*J_val( j, b )*( Kx( i, j ) + tmp );
+
+            end
+        end
+
+        % The CODE is FIXED!!
+        % Must ADD Separately
+        tmp = 0;
+        for k = 4:6
+            diffJ = double( subs( diff( J_sym( k, a ), q_syms( b ) ), q_syms, q_arr ) );
+            tmp = tmp + diffJ * F_arr( k );
+        end     
+        Kq1( a, b ) = Kq1( a, b ) + tmp;
+
+    end
+end
+
+Kq1 = double( Kq1 );
+
+% With Johannes Method
 % Evaluate and store in matrix
-dJ_T_dq = zeros( robot.nq, 3, robot.nq );
-dJ_T_dq( :, :, 1 ) = double( subs( dJ_T_dq1, q_syms, q_arr ) );
-dJ_T_dq( :, :, 2 ) = double( subs( dJ_T_dq2, q_syms, q_arr ) );
-dJ_T_dq( :, :, 3 ) = double( subs( dJ_T_dq3, q_syms, q_arr ) );
-dJ_T_dq( :, :, 4 ) = double( subs( dJ_T_dq4, q_syms, q_arr ) );
-dJ_T_dq( :, :, 5 ) = double( subs( dJ_T_dq5, q_syms, q_arr ) );
-dJ_T_dq( :, :, 6 ) = double( subs( dJ_T_dq6, q_syms, q_arr ) );
-dJ_T_dq( :, :, 7 ) = double( subs( dJ_T_dq7, q_syms, q_arr ) );
+dJ_T_dq = zeros( robot.nq, 6, robot.nq );
+dJ_T_dq( :, :, 1 ) = double( subs( diff( J_T_sym, q_syms( 1 ) ), q_syms, q_arr ) );
+dJ_T_dq( :, :, 2 ) = double( subs( diff( J_T_sym, q_syms( 2 ) ), q_syms, q_arr ) );
+dJ_T_dq( :, :, 3 ) = double( subs( diff( J_T_sym, q_syms( 3 ) ), q_syms, q_arr ) );
+dJ_T_dq( :, :, 4 ) = double( subs( diff( J_T_sym, q_syms( 4 ) ), q_syms, q_arr ) );
+dJ_T_dq( :, :, 5 ) = double( subs( diff( J_T_sym, q_syms( 5 ) ), q_syms, q_arr ) );
+dJ_T_dq( :, :, 6 ) = double( subs( diff( J_T_sym, q_syms( 6 ) ), q_syms, q_arr ) );
+dJ_T_dq( :, :, 7 ) = double( subs( diff( J_T_sym, q_syms( 7 ) ), q_syms, q_arr ) );
+
+% Chen 2004!!!!!!!!!!!!!!!!!!!!
+K_CS = [ 0, 0, 0, 0, 0, 0; ...
+         0, 0, 0, 0, 0, 0; ...
+         0, 0, 0, 0, 0, 0; ...
+         0, 0, 0, 0, -F_arr(6)/2, F_arr(5)/2; ...
+         0, 0, 0, F_arr(6)/2, 0, -F_arr(4)/2; ...
+         0, 0, 0, -F_arr(5)/2, F_arr(4)/2, 0 ];
 
 K_kin = [ dJ_T_dq( :, :, 1 ) * F_arr, dJ_T_dq( :, :, 2 ) * F_arr, dJ_T_dq( :, :, 3 ) * F_arr, dJ_T_dq( :, :, 4 ) * F_arr, ...
           dJ_T_dq( :, :, 5 ) * F_arr, dJ_T_dq( :, :, 6 ) * F_arr, dJ_T_dq( :, :, 7 ) * F_arr ];
 
-J = robot.getHybridJacobian( q_arr );
-J = J( 1:3, : );
+if idx == 1 || idx == 2
+    Kq2 = J_val' * Kx * J_val + K_kin;   % Without CS
 
-Kq2 = J' * Kx * J + K_kin;
+    fprintf( "Error between Brute Force, without CS: %.15f\n", max( max( Kq1 - Kq2  )  ) )
+    fprintf( "Symmetry with Brute Force %.15f\n", max( max( Kq2 - Kq2' ) ) );
+    fprintf( "Symmetry without CS %.15f\n", max( max( Kq2 - Kq2' ) ) );
+    fprintf( "Determinant, Brute Force %.15f\n", det( Kq1 ) );
+    fprintf( "Determinant, without CS  %.15f\n", det( Kq2 ) );
+
+elseif idx == 3
+    Kq2 = J_val' * ( Kx        ) * J_val + K_kin;   % Without CS    
+    Kq3 = J_val' * ( Kx + K_CS ) * J_val + K_kin;   % With    CS
+
+    fprintf( "Error between Brute Force, without CS: %.15f\n", max( max( Kq1 - Kq2  )  ) )
+    fprintf( "Error between Brute Force, with    CS: %.15f\n", max( max( Kq1 - Kq3  )  ) )
+    fprintf( "Symmetry with Brute Force %.15f\n", max( max( Kq2 - Kq2' ) ) );
+    fprintf( "Symmetry without CS %.15f\n", max( max( Kq2 - Kq2' ) ) );
+    fprintf( "Symmetry with    CS %.15f\n", max( max( Kq3 - Kq3' ) ) );
+    fprintf( "Determinant, Brute Force %.15f\n", det( Kq1 ) );
+    fprintf( "Determinant, without CS  %.15f\n", det( Kq2 ) );
+    fprintf( "Determinant, with    CS  %.15f\n", det( Kq3 ) );
+    
+end
+%% (1C) 6D Case Translation and Rotation
+
+idx = 3;
+fprintf( "\nAnalyzing %s Jacobian, 6D Translation + Rotation \n", J_type( idx ) );
+
+% Using the Hybrid Jacobian for the Symmetric 
+J_sym = J_mat{ idx };
+J_T_sym = J_sym.';
+
+% Initializing the joint-stiffness matrix, type 1
+Kq1 = sym( zeros( robot.nq, robot.nq ) );
+
+Kx = diag( [ 402., 311., 167., 42., 31., 17. ] );
+F_arr = [ 1.5, 2.2, 1.4, 0.7, 1.2, 0.95 ]';
+
+% Values Randomized vs. Johannes' Code 
+q_arr = robot.q_init;
+
+% The Hybrid Jacobian Value
+J_val = double( subs( J_sym, q_syms, q_arr ) );
+
+% With Brute-Force Tensor Notation
+% a, b are iterating across the joint angles, 1<=a,b<=7
+for a = 1 : robot.nq
+    for b = 1 : robot.nq
+       
+        % The Hybrid Jacobian Terms
+        % For Rotational Parts
+        for i = 1 : 6
+            for j = 1 : 6
+                
+                tmp = 0;
+
+                if idx == 3 % If Body
+                    for k = 1 : 6
+                        tmp = tmp + F_arr( k )*Gamma(i,j,k);
+                    end
+                end
+
+                % Summation
+                Kq1( a, b ) = Kq1( a, b ) + J_val( i, a )*J_val( j, b )*( Kx( i, j ) + tmp );
+
+            end
+        end
+
+        % The CODE is FIXED!!
+        % Must ADD Separately
+        tmp = 0;
+        for k = 1:6
+            diffJ = double( subs( diff( J_sym( k, a ), q_syms( b ) ), q_syms, q_arr ) );
+            tmp = tmp + diffJ * F_arr( k );
+        end     
+        Kq1( a, b ) = Kq1( a, b ) + tmp;
+
+
+    end
+end
+
+Kq1 = double( Kq1 );
+
+% With Johannes MethodW
+% Evaluate and store in matrix
+dJ_T_dq = zeros( robot.nq, 6, robot.nq );
+dJ_T_dq( :, :, 1 ) = double( subs( diff( J_T_sym, q_syms( 1 ) ), q_syms, q_arr ) );
+dJ_T_dq( :, :, 2 ) = double( subs( diff( J_T_sym, q_syms( 2 ) ), q_syms, q_arr ) );
+dJ_T_dq( :, :, 3 ) = double( subs( diff( J_T_sym, q_syms( 3 ) ), q_syms, q_arr ) );
+dJ_T_dq( :, :, 4 ) = double( subs( diff( J_T_sym, q_syms( 4 ) ), q_syms, q_arr ) );
+dJ_T_dq( :, :, 5 ) = double( subs( diff( J_T_sym, q_syms( 5 ) ), q_syms, q_arr ) );
+dJ_T_dq( :, :, 6 ) = double( subs( diff( J_T_sym, q_syms( 6 ) ), q_syms, q_arr ) );
+dJ_T_dq( :, :, 7 ) = double( subs( diff( J_T_sym, q_syms( 7 ) ), q_syms, q_arr ) );
+
+
+% For 6D
+K_CS1 = [ 0, 0, 0, 0, -F_arr(3), F_arr(2); ...
+        0, 0, 0, F_arr(3), 0, -F_arr(1); ...
+        0, 0, 0, -F_arr(2), F_arr(1), 0; ...
+        0, 0, 0, 0, -F_arr(6)/2, F_arr(5)/2; ...
+        0, 0, 0, F_arr(6)/2, 0, -F_arr(4)/2; ...
+        0, 0, 0, -F_arr(5)/2, F_arr(4)/2, 0 ];
+
+% Chen 2004 !!!!!!!!
+% This is wrong with the full tensor notation
+K_CS2 = [ 0, 0, 0, 0, 0, 0; ...
+          0, 0, 0, 0, 0, 0; ...
+          0, 0, 0, 0, 0, 0; ...
+          0, 0, 0, 0, -F_arr(6)/2, F_arr(5)/2; ...
+          0, 0, 0,  F_arr(6)/2, 0, -F_arr(4)/2; ...
+          0, 0, 0, -F_arr(5)/2, F_arr(4)/2, 0 ];
+
+K_kin = [ dJ_T_dq( :, :, 1 ) * F_arr, dJ_T_dq( :, :, 2 ) * F_arr, dJ_T_dq( :, :, 3 ) * F_arr, dJ_T_dq( :, :, 4 ) * F_arr, ...
+          dJ_T_dq( :, :, 5 ) * F_arr, dJ_T_dq( :, :, 6 ) * F_arr, dJ_T_dq( :, :, 7 ) * F_arr ];
+
+if idx == 3 % If Body
+    Kq2 = J_val' * Kx * J_val + J_val' * K_CS1 * J_val + K_kin;
+    Kq3 = J_val' * Kx * J_val + J_val' * K_CS2 * J_val + K_kin;
+    Kq4 = J_val' * Kx * J_val + K_kin;    
+else
+    Kq2 = J_val' * Kx * J_val + K_kin;
+    Kq3 = J_val' * Kx * J_val + K_kin;
+end
+
+% Kq1 and Kq2 are equivalent!
+fprintf( "Error between two methods with    off-diag: %.15f\n", max( max( Kq1 - Kq2  )  ) )
+fprintf( "Error between two methods without off-diag: %.15f\n", max( max( Kq1 - Kq3  )  ) )
+
+% Symmetry
+fprintf( "Symmetry with    off-diag %.15f\n", max( max( Kq2 - Kq2' ) ) );
+fprintf( "Symmetry without off-diag %.15f\n", max( max( Kq3 - Kq3' ) ) );
+fprintf( "Determinant %.15f\n", det( Kq1 ) );
+
+if idx == 3
+    fprintf( "Symmetry only Kin Stiff %.15f\n", max( max( Kq4 - Kq4' ) ) );
+end
